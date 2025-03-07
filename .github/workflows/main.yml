@@ -1,73 +1,55 @@
-name: Build Android 12 5.10 Kernel
+name: Build Android 12 Kernel with Clang/LLVM
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 
 jobs:
-  build:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 120
+  build-kernel:
+    runs-on: ubuntu-latest
 
     steps:
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          git make gcc libssl-dev ncurses-dev \
-          flex bison libelf-dev \
-          gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    - name: Install LLVM/Clang 15
-      run: |
-        wget https://apt.llvm.org/llvm.sh
-        chmod +x llvm.sh
-        sudo ./llvm.sh 15
-        echo "/usr/lib/llvm-15/bin" >> $GITHUB_PATH
+      - name: Set up environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev bc git
 
-    - name: Clone kernel source
-      run: |
-        git clone https://android.googlesource.com/kernel/common \
-          -b android12-5.10 \
-          --depth=1 \
-          --single-branch
+      - name: Clone Android 12 Kernel source
+        run: |
+          git clone https://android.googlesource.com/kernel/common -b android12-5.10 --depth=1 kernel
+          cd kernel
 
-    - name: Setup environment
-      working-directory: ./common
-      run: |
-        # 配置编译参数
-        export ARCH=arm64
-        export LLVM=1
-        export CLANG_TRIPLE=aarch64-linux-gnu-
-        export CROSS_COMPILE=aarch64-linux-gnu-
-        
-        # 创建编译输出目录
-        mkdir -p out
+      - name: Set up Clang/LLVM
+        run: |
+          wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r450784d.tar.gz
+          mkdir -p clang
+          tar -xzf clang-r450784d.tar.gz -C clang
+          export PATH=$(pwd)/clang/bin:$PATH
 
-    - name: Configure kernel
-      working-directory: ./common
-      run: |
-        make O=out \
-          ARCH=arm64 \
-          LLVM=1 \
-          CLANG_TRIPLE=aarch64-linux-gnu- \
-          CROSS_COMPILE=aarch64-linux-gnu- \
-          gki_defconfig
+      - name: Configure kernel with defconfig
+        run: |
+          cd kernel
+          make ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-gnu- defconfig
 
-    - name: Build kernel
-      working-directory: ./common
-      run: |
-        make O=out \
-          ARCH=arm64 \
-          LLVM=1 \
-          CLANG_TRIPLE=aarch64-linux-gnu- \
-          CROSS_COMPILE=aarch64-linux-gnu- \
-          -j$(nproc) \
-          Image.gz-dtb
+      - name: Build kernel
+        run: |
+          cd kernel
+          make ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
 
-    - name: Archive artifacts
-      uses: actions/upload-artifact@v3
-      with:
-        name: kernel-build
-        path: |
-          common/out/arch/arm64/boot/Image.gz-dtb
-          common/out/.config
+      - name: Archive kernel image
+        run: |
+          cd kernel
+          tar -czvf kernel-image.tar.gz arch/arm64/boot/Image
+
+      - name: Upload kernel image as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: kernel-image
+          path: kernel/kernel-image.tar.gz

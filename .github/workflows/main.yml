@@ -14,7 +14,7 @@ jobs:
       - name: Set up environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev bc git wget
+          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev bc git wget lld
 
       - name: Clone Android 12 Kernel source
         run: |
@@ -25,6 +25,11 @@ jobs:
         run: |
           git clone https://gitlab.com/ThankYouMario/android_prebuilts_clang-standalone.git -b 12 clang
           export PATH=$(pwd)/clang/bin:$PATH
+
+      - name: Check Clang and LLD
+        run: |
+          clang --version
+          ld.lld --version
 
       - name: Configure kernel with defconfig
         run: |

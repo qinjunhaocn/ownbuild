@@ -1,0 +1,98 @@
+name: Build Android 12 Kernel with Clang/LLVM pkg with ak3
+
+on:
+  workflow_dispatch: # 支持手动触发
+
+env:
+  ANYKERNEL_SOURCE: https://github.com/osm0sis/AnyKernel3.git
+  ANYKERNEL_SOURCE_BRANCH: master
+
+jobs:
+  build-kernel:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libncurses-dev \
+            bison \
+            flex \
+            libssl-dev \
+            bc \
+            git \
+            wget \
+            lld \
+            gcc-aarch64-linux-gnu \
+            llvm \
+            clang \
+            zip
+
+      - name: Clone Android 12 Kernel source
+        run: |
+          git clone https://android.googlesource.com/kernel/common -b android12-5.10 --depth=1 kernel
+          cd kernel
+
+      - name: Clone Clang/LLVM from GitLab
+        run: |
+          git clone https://gitlab.com/ThankYouMario/android_prebuilts_clang-standalone.git -b 12 clang
+          export PATH=$(pwd)/clang/bin:$PATH
+
+      - name: Check Clang and LLVM tools
+        run: |
+          clang --version
+          ld.lld --version
+          llvm-ar --version
+
+      - name: Configure kernel with defconfig
+        run: |
+          cd kernel
+          make ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-gnu- \
+              CLANG_TRIPLE=aarch64-linux-gnu- \
+              LLVM=1 LLVM_IAS=1 \
+              defconfig
+
+      - name: Build kernel
+        run: |
+          cd kernel
+          make ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-gnu- \
+              CLANG_TRIPLE=aarch64-linux-gnu- \
+              LLVM=1 LLVM_IAS=1 \
+              -j$(nproc)
+
+      - name: Package kernel with AnyKernel3
+        run: |
+          # 克隆 AnyKernel3 并清理无关文件
+          git clone --depth=1 $ANYKERNEL_SOURCE -b $ANYKERNEL_SOURCE_BRANCH AnyKernel3
+          rm -rf AnyKernel3/.git AnyKernel3/.github AnyKernel3/LICENSE AnyKernel3/README.md
+
+          # 复制内核镜像
+          if [[ -f kernel/arch/arm64/boot/Image.gz-dtb ]]; then
+            cp kernel/arch/arm64/boot/Image.gz-dtb AnyKernel3/Image.gz-dtb
+          elif [[ -f kernel/arch/arm64/boot/Image-dtb ]]; then
+            cp kernel/arch/arm64/boot/Image-dtb AnyKernel3/Image-dtb
+          elif [[ -f kernel/arch/arm64/boot/Image.gz ]]; then
+            cp kernel/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
+          elif [[ -f kernel/arch/arm64/boot/Image ]]; then
+            cp kernel/arch/arm64/boot/Image AnyKernel3/Image
+          fi
+
+          # 复制 dtbo.img（如果存在）
+          if [[ -f kernel/arch/arm64/boot/dtbo.img ]]; then
+            cp kernel/arch/arm64/boot/dtbo.img AnyKernel3/dtbo.img
+          fi
+
+          # 打包 AnyKernel3
+          cd AnyKernel3
+          zip -r9 kernel.zip * -x .git README.md *placeholder
+
+      - name: Upload kernel ZIP as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-zip
+          path: AnyKernel3/kernel.zip

@@ -1,12 +1,7 @@
 name: Build Android 12 Kernel with Clang/LLVM
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch: # 支持手动触发
 
 jobs:
   build-kernel:
@@ -14,23 +9,21 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Set up environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev bc git
+          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev bc git wget
 
       - name: Clone Android 12 Kernel source
         run: |
           git clone https://android.googlesource.com/kernel/common -b android12-5.10 --depth=1 kernel
           cd kernel
 
-      - name: Set up Clang/LLVM
+      - name: Clone Clang/LLVM from GitLab
         run: |
-          wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r450784d.tar.gz
-          mkdir -p clang
-          tar -xzf clang-r450784d.tar.gz -C clang
+          git clone https://gitlab.com/ThankYouMario/android_prebuilts_clang-standalone.git -b 12 clang
           export PATH=$(pwd)/clang/bin:$PATH
 
       - name: Configure kernel with defconfig
